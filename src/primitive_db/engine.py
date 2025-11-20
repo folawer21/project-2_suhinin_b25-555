@@ -1,41 +1,33 @@
 import shlex
 from typing import List
-from .core import create_table, drop_table, list_tables, show_table_structure, METADATA_FILE
-from .utils import load_metadata, save_metadata
+from .core import (
+    create_table, drop_table, list_tables, show_table_structure, 
+    insert, select, update, delete, format_table_output, METADATA_FILE
+)
+from .utils import load_metadata, save_metadata, load_table_data
 
 def print_help():
     """Выводит справочную информацию по командам."""
     print("\nДоступные команды:")
-    print("  create_table <table_name> <column1:type1> [column2:type2 ...] - Создать таблицу")
-    print("  drop_table <table_name> - Удалить таблицу")
-    print("  list_tables - Показать все таблицы")
-    print("  show_table <table_name> - Показать структуру таблицы")
-    print("  help - Показать эту справку")
-    print("  exit - Выйти из программы")
-    print("\nПример: create_table users name:str age:int active:bool")
-
-def parse_columns(column_args: List[str]) -> List[tuple]:
-    """
-    Парсит аргументы столбцов в формате name:type.
-    
-    Args:
-        column_args: Список аргументов столбцов
-        
-    Returns:
-        Список кортежей (имя, тип)
-        
-    Raises:
-        ValueError: Если формат неверный
-    """
-    columns = []
-    for col_arg in column_args:
-        if ':' not in col_arg:
-            raise ValueError(f"Неверный формат столбца: {col_arg}. Используйте name:type")
-        
-        name, col_type = col_arg.split(':', 1)
-        columns.append((name.strip(), col_type.strip()))
-    
-    return columns
+    print("  Управление таблицами:")
+    print("    create_table <table_name> <column1:type1> [column2:type2 ...] - Создать таблицу")
+    print("    drop_table <table_name> - Удалить таблицу")
+    print("    list_tables - Показать все таблицы")
+    print("    show_table <table_name> - Показать структуру таблицы")
+    print("  CRUD операции:")
+    print("    insert <table_name> <value1> <value2> ... - Добавить запись")
+    print("    select <table_name> [WHERE <condition>] - Показать записи")
+    print("    update <table_name> SET <set_clause> WHERE <where_clause> - Обновить записи")
+    print("    delete <table_name> WHERE <where_clause> - Удалить записи")
+    print("  Общие:")
+    print("    help - Показать эту справку")
+    print("    exit - Выйти из программы")
+    print("\nПримеры:")
+    print("  create_table users name:str age:int active:bool")
+    print("  insert users 'John Doe' 28 true")
+    print("  select users WHERE age = 28")
+    print("  update users SET age = 29 WHERE name = 'John Doe'")
+    print("  delete users WHERE age = 28")
 
 def run():
     """Главная функция запуска БД с основным циклом."""
@@ -70,10 +62,18 @@ def run():
                 column_args = args[2:]
                 
                 try:
-                    columns = parse_columns(column_args)
-                    metadata = create_table(metadata, table_name, columns)
-                    save_metadata(METADATA_FILE, metadata)
-                    print(f"Таблица '{table_name}' успешно создана!")
+                    columns = []
+                    for col_arg in column_args:
+                        if ':' not in col_arg:
+                            print(f"Ошибка: Неверный формат столбца: {col_arg}. Используйте name:type")
+                            break
+                        name, col_type = col_arg.split(':', 1)
+                        columns.append((name.strip(), col_type.strip()))
+                    else:
+                        metadata = create_table(metadata, table_name, columns)
+                        save_metadata(METADATA_FILE, metadata)
+                        print(f"Таблица '{table_name}' успешно создана!")
+                        
                 except ValueError as e:
                     print(f"Ошибка: {e}")
                     
@@ -112,6 +112,73 @@ def run():
                     print(f"Структура таблицы '{table_name}':")
                     for col_name, col_type in structure["columns"]:
                         print(f"  - {col_name}: {col_type}")
+                except ValueError as e:
+                    print(f"Ошибка: {e}")
+                    
+            elif command == "insert":
+                if len(args) < 3:
+                    print("Ошибка: Используйте: insert <table_name> <value1> <value2> ...")
+                    continue
+                
+                table_name = args[1]
+                values_str = ' '.join(args[2:])
+                
+                try:
+                    table_data = insert(metadata, table_name, values_str)
+                    print(f"Запись успешно добавлена в таблицу '{table_name}'")
+                except ValueError as e:
+                    print(f"Ошибка: {e}")
+                    
+            elif command == "select":
+                if len(args) < 2:
+                    print("Ошибка: Используйте: select <table_name> [WHERE <condition>]")
+                    continue
+                
+                table_name = args[1]
+                where_str = None
+                
+                if len(args) > 3 and args[2].lower() == 'where':
+                    where_str = ' '.join(args[3:])
+                elif len(args) > 2:
+                    print("Ошибка: Используйте: select <table_name> [WHERE <condition>]")
+                    continue
+                
+                try:
+                    data = select(metadata, table_name, where_str)
+                    if table_name in metadata:
+                        columns = metadata[table_name]["columns"]
+                        print(format_table_output(data, columns))
+                    else:
+                        print("Таблица не найдена")
+                except ValueError as e:
+                    print(f"Ошибка: {e}")
+                    
+            elif command == "update":
+                if len(args) < 6 or args[2].lower() != 'set' or args[4].lower() != 'where':
+                    print("Ошибка: Используйте: update <table_name> SET <set_clause> WHERE <where_clause>")
+                    continue
+                
+                table_name = args[1]
+                set_str = args[3]
+                where_str = ' '.join(args[5:])
+                
+                try:
+                    table_data = update(metadata, table_name, set_str, where_str)
+                    print(f"Записи в таблице '{table_name}' успешно обновлены")
+                except ValueError as e:
+                    print(f"Ошибка: {e}")
+                    
+            elif command == "delete":
+                if len(args) < 4 or args[2].lower() != 'where':
+                    print("Ошибка: Используйте: delete <table_name> WHERE <where_clause>")
+                    continue
+                
+                table_name = args[1]
+                where_str = ' '.join(args[3:])
+                
+                try:
+                    table_data = delete(metadata, table_name, where_str)
+                    print(f"Записи из таблицы '{table_name}' успешно удалены")
                 except ValueError as e:
                     print(f"Ошибка: {e}")
                     
