@@ -1,0 +1,15 @@
+{
+  "sosat": {
+    "columns": [
+      [
+        "ID",
+        "int"
+      ],
+      [
+        "name",
+        "str"
+      ]
+    ],
+    "data": []
+  }
+}
