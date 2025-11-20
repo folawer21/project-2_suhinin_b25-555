@@ -2,29 +2,20 @@ from typing import Dict, List, Any, Tuple
 from prettytable import PrettyTable
 from .utils import save_metadata, load_metadata, load_table_data, save_table_data
 from .parser import parse_where_clause, parse_set_clause, parse_insert_values
+from .decorators import handle_db_errors, confirm_action, log_time, create_cacher
 
+# Константы
 METADATA_FILE = "db_meta.json"
 VALID_TYPES = {"int", "str", "bool"}
 
+# Создаем кэшер для запросов
+query_cacher = create_cacher()
+
 def validate_column_type(col_type: str) -> bool:
-    """Проверяет корректность типа данных столбца."""
     return col_type.lower() in VALID_TYPES
 
+@handle_db_errors
 def create_table(metadata: Dict[str, Any], table_name: str, columns: List[Tuple[str, str]]) -> Dict[str, Any]:
-    """
-    Создает новую таблицу в метаданных.
-    
-    Args:
-        metadata: Текущие метаданные БД
-        table_name: Имя таблицы
-        columns: Список кортежей (имя_столбца, тип)
-        
-    Returns:
-        Обновленные метаданные
-        
-    Raises:
-        ValueError: Если таблица уже существует или неверные типы данных
-    """
     if table_name in metadata:
         raise ValueError(f"Таблица '{table_name}' уже существует")
     
@@ -44,20 +35,9 @@ def create_table(metadata: Dict[str, Any], table_name: str, columns: List[Tuple[
     
     return metadata
 
+@handle_db_errors
+@confirm_action("удаление таблицы")
 def drop_table(metadata: Dict[str, Any], table_name: str) -> Dict[str, Any]:
-    """
-    Удаляет таблицу из метаданных.
-    
-    Args:
-        metadata: Текущие метаданные БД
-        table_name: Имя таблицы для удаления
-        
-    Returns:
-        Обновленные метаданные
-        
-    Raises:
-        ValueError: Если таблица не существует
-    """
     if table_name not in metadata:
         raise ValueError(f"Таблица '{table_name}' не существует")
     
@@ -70,52 +50,20 @@ def drop_table(metadata: Dict[str, Any], table_name: str) -> Dict[str, Any]:
     
     return metadata
 
+@handle_db_errors
 def list_tables(metadata: Dict[str, Any]) -> List[str]:
-    """
-    Возвращает список всех таблиц.
-    
-    Args:
-        metadata: Метаданные БД
-        
-    Returns:
-        Список имен таблиц
-    """
     return list(metadata.keys())
 
+@handle_db_errors
 def show_table_structure(metadata: Dict[str, Any], table_name: str) -> Dict[str, Any]:
-    """
-    Показывает структуру таблицы.
-    
-    Args:
-        metadata: Метаданные БД
-        table_name: Имя таблицы
-        
-    Returns:
-        Структура таблицы
-        
-    Raises:
-        ValueError: Если таблица не существует
-    """
     if table_name not in metadata:
         raise ValueError(f"Таблица '{table_name}' не существует")
     
     return metadata[table_name]
 
+@handle_db_errors
+@log_time
 def insert(metadata: Dict[str, Any], table_name: str, values_str: str) -> List[Dict[str, Any]]:
-    """
-    Вставляет новую запись в таблицу.
-    
-    Args:
-        metadata: Метаданные БД
-        table_name: Имя таблицы
-        values_str: Строка со значениями для вставки
-        
-    Returns:
-        Обновленные данные таблицы
-        
-    Raises:
-        ValueError: Если таблица не существует или неверные данные
-    """
     if table_name not in metadata:
         raise ValueError(f"Таблица '{table_name}' не существует")
     
@@ -144,59 +92,37 @@ def insert(metadata: Dict[str, Any], table_name: str, values_str: str) -> List[D
     
     return table_data
 
+@handle_db_errors
+@log_time
 def select(metadata: Dict[str, Any], table_name: str, where_str: str = None) -> List[Dict[str, Any]]:
-    """
-    Выбирает записи из таблицы.
-    
-    Args:
-        metadata: Метаданные БД
-        table_name: Имя таблицы
-        where_str: Условие WHERE (опционально)
-        
-    Returns:
-        Список найденных записей
-        
-    Raises:
-        ValueError: Если таблица не существует
-    """
     if table_name not in metadata:
         raise ValueError(f"Таблица '{table_name}' не существует")
     
-    table_data = load_table_data(table_name)
+    def _execute_select():
+        table_data = load_table_data(table_name)
+        
+        if not where_str:
+            return table_data
+        
+        where_clause = parse_where_clause(where_str)
+        
+        filtered_data = []
+        for record in table_data:
+            match = True
+            for column, value in where_clause.items():
+                if column not in record or record[column] != value:
+                    match = False
+                    break
+            if match:
+                filtered_data.append(record)
+        
+        return filtered_data
     
-    if not where_str:
-        return table_data
-    
-    where_clause = parse_where_clause(where_str)
-    
-    filtered_data = []
-    for record in table_data:
-        match = True
-        for column, value in where_clause.items():
-            if column not in record or record[column] != value:
-                match = False
-                break
-        if match:
-            filtered_data.append(record)
-    
-    return filtered_data
+    cache_key = f"select_{table_name}_{where_str}"
+    return query_cacher(cache_key, _execute_select)
 
+@handle_db_errors
 def update(metadata: Dict[str, Any], table_name: str, set_str: str, where_str: str) -> List[Dict[str, Any]]:
-    """
-    Обновляет записи в таблице.
-    
-    Args:
-        metadata: Метаданные БД
-        table_name: Имя таблицы
-        set_str: Условие SET
-        where_str: Условие WHERE
-        
-    Returns:
-        Обновленные данные таблицы
-        
-    Raises:
-        ValueError: Если таблица не существует или неверные данные
-    """
     if table_name not in metadata:
         raise ValueError(f"Таблица '{table_name}' не существует")
     
@@ -231,21 +157,9 @@ def update(metadata: Dict[str, Any], table_name: str, set_str: str, where_str: s
     
     return table_data
 
+@handle_db_errors
+@confirm_action("удаление записей")
 def delete(metadata: Dict[str, Any], table_name: str, where_str: str) -> List[Dict[str, Any]]:
-    """
-    Удаляет записи из таблицы.
-    
-    Args:
-        metadata: Метаданные БД
-        table_name: Имя таблицы
-        where_str: Условие WHERE
-        
-    Returns:
-        Обновленные данные таблицы
-        
-    Raises:
-        ValueError: Если таблица не существует
-    """
     if table_name not in metadata:
         raise ValueError(f"Таблица '{table_name}' не существует")
     
@@ -274,16 +188,6 @@ def delete(metadata: Dict[str, Any], table_name: str, where_str: str) -> List[Di
     return new_data
 
 def format_table_output(data: List[Dict[str, Any]], columns: List[Tuple[str, str]]) -> str:
-    """
-    Форматирует данные таблицы для красивого вывода.
-    
-    Args:
-        data: Данные таблицы
-        columns: Столбцы таблицы
-        
-    Returns:
-        Отформатированная строка таблицы
-    """
     if not data:
         return "Нет данных для отображения"
     

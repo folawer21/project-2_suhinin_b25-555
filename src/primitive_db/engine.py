@@ -4,10 +4,9 @@ from .core import (
     create_table, drop_table, list_tables, show_table_structure, 
     insert, select, update, delete, format_table_output, METADATA_FILE
 )
-from .utils import load_metadata, save_metadata, load_table_data
+from .utils import load_metadata, save_metadata
 
 def print_help():
-    """Выводит справочную информацию по командам."""
     print("\nДоступные команды:")
     print("  Управление таблицами:")
     print("    create_table <table_name> <column1:type1> [column2:type2 ...] - Создать таблицу")
@@ -30,7 +29,6 @@ def print_help():
     print("  delete users WHERE age = 28")
 
 def run():
-    """Главная функция запуска БД с основным циклом."""
     print("Primitive Database запущена!")
     print("Введите 'help' для списка команд или 'exit' для выхода.")
     
@@ -61,22 +59,19 @@ def run():
                 table_name = args[1]
                 column_args = args[2:]
                 
-                try:
-                    columns = []
-                    for col_arg in column_args:
-                        if ':' not in col_arg:
-                            print(f"Ошибка: Неверный формат столбца: {col_arg}. Используйте name:type")
-                            break
-                        name, col_type = col_arg.split(':', 1)
-                        columns.append((name.strip(), col_type.strip()))
-                    else:
-                        metadata = create_table(metadata, table_name, columns)
+                columns = []
+                for col_arg in column_args:
+                    if ':' not in col_arg:
+                        print(f"Ошибка: Неверный формат столбца: {col_arg}. Используйте name:type")
+                        break
+                    name, col_type = col_arg.split(':', 1)
+                    columns.append((name.strip(), col_type.strip()))
+                else:
+                    result = create_table(metadata, table_name, columns)
+                    if result is not None:
                         save_metadata(METADATA_FILE, metadata)
                         print(f"Таблица '{table_name}' успешно создана!")
                         
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
-                    
             elif command == "drop_table":
                 if len(args) != 2:
                     print("Ошибка: Используйте: drop_table <table_name>")
@@ -84,21 +79,20 @@ def run():
                 
                 table_name = args[1]
                 
-                try:
-                    metadata = drop_table(metadata, table_name)
+                result = drop_table(metadata, table_name)
+                if result is not None:
                     save_metadata(METADATA_FILE, metadata)
                     print(f"Таблица '{table_name}' успешно удалена!")
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
                     
             elif command == "list_tables":
                 tables = list_tables(metadata)
-                if tables:
-                    print("Таблицы в базе данных:")
-                    for table in tables:
-                        print(f"  - {table}")
-                else:
-                    print("В базе данных нет таблиц.")
+                if tables is not None:
+                    if tables:
+                        print("Таблицы в базе данных:")
+                        for table in tables:
+                            print(f"  - {table}")
+                    else:
+                        print("В базе данных нет таблиц.")
                     
             elif command == "show_table":
                 if len(args) != 2:
@@ -107,13 +101,11 @@ def run():
                 
                 table_name = args[1]
                 
-                try:
-                    structure = show_table_structure(metadata, table_name)
+                structure = show_table_structure(metadata, table_name)
+                if structure is not None:
                     print(f"Структура таблицы '{table_name}':")
                     for col_name, col_type in structure["columns"]:
                         print(f"  - {col_name}: {col_type}")
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
                     
             elif command == "insert":
                 if len(args) < 3:
@@ -123,11 +115,9 @@ def run():
                 table_name = args[1]
                 values_str = ' '.join(args[2:])
                 
-                try:
-                    table_data = insert(metadata, table_name, values_str)
+                result = insert(metadata, table_name, values_str)
+                if result is not None:
                     print(f"Запись успешно добавлена в таблицу '{table_name}'")
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
                     
             elif command == "select":
                 if len(args) < 2:
@@ -143,15 +133,10 @@ def run():
                     print("Ошибка: Используйте: select <table_name> [WHERE <condition>]")
                     continue
                 
-                try:
-                    data = select(metadata, table_name, where_str)
-                    if table_name in metadata:
-                        columns = metadata[table_name]["columns"]
-                        print(format_table_output(data, columns))
-                    else:
-                        print("Таблица не найдена")
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
+                data = select(metadata, table_name, where_str)
+                if data is not None and table_name in metadata:
+                    columns = metadata[table_name]["columns"]
+                    print(format_table_output(data, columns))
                     
             elif command == "update":
                 if len(args) < 6 or args[2].lower() != 'set' or args[4].lower() != 'where':
@@ -162,11 +147,9 @@ def run():
                 set_str = args[3]
                 where_str = ' '.join(args[5:])
                 
-                try:
-                    table_data = update(metadata, table_name, set_str, where_str)
+                result = update(metadata, table_name, set_str, where_str)
+                if result is not None:
                     print(f"Записи в таблице '{table_name}' успешно обновлены")
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
                     
             elif command == "delete":
                 if len(args) < 4 or args[2].lower() != 'where':
@@ -176,11 +159,9 @@ def run():
                 table_name = args[1]
                 where_str = ' '.join(args[3:])
                 
-                try:
-                    table_data = delete(metadata, table_name, where_str)
+                result = delete(metadata, table_name, where_str)
+                if result is not None:
                     print(f"Записи из таблицы '{table_name}' успешно удалены")
-                except ValueError as e:
-                    print(f"Ошибка: {e}")
                     
             else:
                 print(f"Неизвестная команда: {command}")
